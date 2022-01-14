@@ -4,9 +4,11 @@
 
 def filter_schools(schools)
   foul_titles = [
-    /voksenopplæring/i,
+    /voksenoppl/i,
     /vikarer/i,
-    /fellestjeneste/i
+    /fellestjeneste/i,
+    /spesial tiltak/i,
+    /Vestfold og Telemark fylkeskommune/ # For some reason, the administration itself is added to NSR...
   ]
   # Remove any schools we do not care for
   schools.reject! do |school|
@@ -60,22 +62,33 @@ def validate_lat_long(school)
   end
 end
 
+def validate_address(school)
+  address = school["address"]["street"]
+  return nil unless address.present?
+
+  address
+end
+
 def space_from(school)
-  space_owner = SpaceOwner.find_by space_owner_from(school)
+  space_group = SpaceGroup.find_by space_group_from(school)
   space_type = SpaceType.find_by(space_types_from(school))
+
+  address = validate_address(school)
+  return unless address
+
   position = validate_lat_long(school)
   return unless position
+
   {
     title: knead_title(get_info(school["title"])),
-    address: school["address"]["street"],
+    address: address,
     post_number: school["address"]["postnumber"],
     post_address: school["address"]["poststed"],
     lat: position[:lat],
     lng: position[:lng],
     municipality_code: position[:municipality_code],
     organization_number: get_meta(school, "organizationalNumber"),
-    fits_people: get_meta(school, "pupils"),
-    space_owner: space_owner,
+    space_group: space_group,
     space_type: space_type
   }
 end
@@ -85,14 +98,22 @@ def space_types_from(school)
   { type_name: get_meta(school, "types")[0] }
 end
 
-def space_owner_from(school)
-  # TODO: Change Space model so SpaceOwner is OPTIONAL. Not all spaces have a space owner that's relevant to list out.
+def space_group_from(school)
+  # TODO: Change Space model so SpaceGroup is OPTIONAL
+  # Not all spaces have a space group that's relevant to list out.
   return unless school && school["owner"]
 
   owner = get_info(school["owner"])
+  type = get_meta(school, "types")[0]
+
+  if type == "vgs"
+    return  {
+      title: "VGS eid av #{owner["title"]}"
+    }
+  end
+
   {
-    orgnr: owner["organizationNumber"],
-    title: owner["title"]
+    title: "Grunnskoler eid av #{owner["title"]}"
   }
 end
 

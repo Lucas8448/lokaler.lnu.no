@@ -8,24 +8,31 @@ class SpacesController < AuthenticateController # rubocop:disable Metrics/ClassL
 
   def show
     @space = Space.includes(:space_contacts).where(id: params[:id]).first
-    @space_contact = SpaceContact.new(space_id: @space.id, space_owner_id: @space.space_owner_id)
+    @space_contact = SpaceContact.new(space_id: @space.id, space_group_id: @space.space_group_id)
   end
 
   def new
     @space = Space.new
   end
 
-  def create
+  def create # rubocop:disable Metrics/AbcSize
     address_params = get_address_params(params)
     return redirect_to spaces_path, alert: t("address_search.didnt_find") if address_params.nil?
 
-    @space = Space.create!(
-      space_owner: SpaceOwner.find_or_create_by!(title: params[:space][:space_owner_title]),
+    @space = Space.new(
       **space_params,
       **address_params
     )
 
-    redirect_to space_path(@space)
+    if params[:space][:space_group_title].present?
+      @space.space_group = SpaceGroup.find_or_create_by!(title: params[:space][:space_group_title])
+    end
+
+    if @space.save
+      redirect_to space_path(@space)
+    else
+      render :new, status: :unprocessable_entity
+    end
   end
 
   def address_search
@@ -54,9 +61,9 @@ class SpacesController < AuthenticateController # rubocop:disable Metrics/ClassL
     @space = Space.find(params[:id])
     address_params = get_address_params(params)
 
-    unless params[:space][:space_owner_title].nil?
+    if params[:space][:space_group_title].present?
       @space.update!(
-        space_owner: SpaceOwner.find_or_create_by!(title: params[:space][:space_owner_title])
+        space_group: SpaceGroup.find_or_create_by!(title: params[:space][:space_group_title])
       )
     end
 
@@ -66,16 +73,9 @@ class SpacesController < AuthenticateController # rubocop:disable Metrics/ClassL
     )
       redirect_to space_path(@space)
     else
-      render :edit, status: :unprocessable_entity
+      @field = "basics"
+      render "spaces/edit/common/edit_field"
     end
-  end
-
-  def upload_image
-    @space = Space.find(params[:id])
-    @space.images.attach(params[:image])
-    @space.save!
-    flash[:notice] = t("images.upload_success")
-    redirect_to space_path(params[:id])
   end
 
   def rect_for_spaces
@@ -115,9 +115,46 @@ class SpacesController < AuthenticateController # rubocop:disable Metrics/ClassL
     }
   end
 
+  def check_duplicates
+    duplicates = duplicates_from_params
+
+    if duplicates.blank?
+      return render json: {
+        html: nil,
+        count: 0
+      }
+    end
+
+    render json: {
+      html: render_to_string(
+        partial: "spaces/new/space_duplicate_list", locals: {
+          spaces: duplicates
+        }
+      ),
+      count: duplicates.count
+    }
+  end
+
+  def fullscreen_images
+    @space = Space.find(params[:id])
+    @start_at = params[:start] || 0
+    render "spaces/show/image_header_fullscreen"
+  end
+
   private
 
   SPACE_SEARCH_PAGE_SIZE = 20
+
+  def duplicates_from_params
+    test_space = Space.new(
+      title: params[:title],
+      address: params[:address],
+      post_number: params[:post_number]
+    )
+    duplicates = test_space.potential_duplicates
+    test_space.delete
+    duplicates
+  end
 
   def get_address_params(params)
     Space.search_for_address(
@@ -131,7 +168,7 @@ class SpacesController < AuthenticateController # rubocop:disable Metrics/ClassL
     space_types = params[:space_types]&.map(&:to_i)
     facilities = params[:facilities]&.map(&:to_i)
 
-    spaces = Space.includes([:images_attachments, :space_type]).filter_on_location(
+    spaces = Space.includes([:images, :space_type]).filter_on_location(
       params[:north_west_lat],
       params[:north_west_lng],
       params[:south_east_lat],
@@ -151,18 +188,19 @@ class SpacesController < AuthenticateController # rubocop:disable Metrics/ClassL
       :lat,
       :lng,
       :space_type_id,
+      :space_group_id,
       :post_number,
       :post_address,
       :municipality_code,
       :organization_number,
-      :fits_people,
       :how_to_book,
       :who_can_use,
       :pricing,
       :terms,
       :more_info,
       :facility_description,
-      space_owner_attributes: %i[id how_to_book pricing terms who_can_use]
+      :url,
+      space_group_attributes: %i[id how_to_book pricing terms who_can_use]
     )
   end
 end

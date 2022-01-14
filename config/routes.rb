@@ -20,7 +20,7 @@ Rails.application.routes.draw do # rubocop:disable Metrics/BlockLength
 
   # Resources
   resources "facilities", except: "new"
-  resources "space_owners", except: "new"
+  resources "space_groups", except: "new"
   resources "space_contacts", only: [:create, :edit, :update, :destroy, :show]
 
   # Review routes
@@ -43,7 +43,12 @@ Rails.application.routes.draw do # rubocop:disable Metrics/BlockLength
   get "spaces_search", to: "spaces#spaces_search"
   get "rect_for_spaces", to: "spaces#rect_for_spaces"
   get "address_search", to: "spaces#address_search"
-  post "spaces/upload_image", to: "spaces#upload_image"
+  get "check_duplicates", to: "spaces#check_duplicates"
+  get "/spaces/:id/images/:start", to: "spaces#fullscreen_images", as: "fullscreen_images"
+
+  # Space images routes
+  resources "space_images"
+  post "spaces/upload_image", to: "space_images#upload_image"
 
   # Devise addons
   devise_scope :user do
